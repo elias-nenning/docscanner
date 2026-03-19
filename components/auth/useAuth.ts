@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { backend, type BackendUser } from "@/components/api/backend";
 
 type AuthUser = {
-  id: string;
+  id: number;
   email: string;
   name: string;
 };
@@ -39,25 +40,44 @@ export function useAuth() {
 
   const isAuthed = useMemo(() => Boolean(user), [user]);
 
-  function login(email: string, password: string) {
-    // Demo auth: accept any non-empty credentials
-    if (!email.trim() || !password.trim()) return false;
-    setUser({
-      id: `u_${Math.random().toString(36).slice(2)}`,
-      email: email.trim().toLowerCase(),
-      name: email.split("@")[0]?.trim() || "User",
-    });
-    return true;
+  function toAuthUser(u: BackendUser): AuthUser {
+    return { id: u.id, email: u.email, name: u.name };
   }
 
-  function register(name: string, email: string, password: string) {
+  async function login(email: string, password: string) {
+    // Backend currently does not model passwords; keep UI field for now.
+    if (!email.trim() || !password.trim()) return false;
+    try {
+      const u = await backend.getUserByEmail(email);
+      setUser(toAuthUser(u));
+      return true;
+    } catch (e) {
+      // If user doesn't exist yet, auto-create (backend has no password auth yet).
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.startsWith("404")) {
+        try {
+          const normalized = email.trim().toLowerCase();
+          const fallbackName = normalized.split("@")[0]?.trim() || "User";
+          const u = await backend.createUser({ name: fallbackName, email: normalized, role: "customer" });
+          setUser(toAuthUser(u));
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    }
+  }
+
+  async function register(name: string, email: string, password: string) {
     if (!name.trim() || !email.trim() || !password.trim()) return false;
-    setUser({
-      id: `u_${Math.random().toString(36).slice(2)}`,
-      email: email.trim().toLowerCase(),
-      name: name.trim(),
-    });
-    return true;
+    try {
+      const u = await backend.createUser({ name: name.trim(), email: email.trim().toLowerCase(), role: "customer" });
+      setUser(toAuthUser(u));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function logout() {

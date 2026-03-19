@@ -29,18 +29,21 @@ function Landing() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const primaryCta = useMemo(() => (isAuthed ? "Go to menu" : mode === "login" ? "Log in" : "Register"), [isAuthed, mode]);
 
-  function submit() {
+  async function submit() {
     setError(null);
     if (isAuthed) {
       router.push("/menu");
       return;
     }
-    const ok = mode === "login" ? login(email, password) : register(name, email, password);
+    setLoading(true);
+    const ok = mode === "login" ? await login(email, password) : await register(name, email, password);
+    setLoading(false);
     if (!ok) {
-      setError("Please fill in all fields.");
+      setError(mode === "login" ? "Login failed. Check your email or register first." : "Register failed. Email may already be used.");
       return;
     }
     router.push(next || "/menu");
@@ -105,12 +108,18 @@ function Landing() {
 
             {error ? <div className="mb-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 px-4 py-2 rounded-xl">{error}</div> : null}
 
-            <button onClick={submit} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-4 py-3 text-sm font-semibold transition">
-              {primaryCta}
+            <button
+              onClick={submit}
+              disabled={loading}
+              className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+                loading ? "bg-zinc-200 text-zinc-500 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700 text-white"
+              }`}
+            >
+              {loading ? "Signing in…" : primaryCta}
             </button>
 
             <div className="mt-4 text-xs text-zinc-500">
-              Demo auth: any email/password works.
+              Uses your FastAPI backend. Password is not enforced yet.
             </div>
           </div>
         </div>
