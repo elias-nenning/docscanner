@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import {
   builtinBooking,
   getBuiltinClassById,
+  incrementBuiltinClassBookings,
   recordBuiltinBookingCreditDebit,
+  recordBuiltinFillCredit,
 } from "@/lib/builtin-yoga-api";
+import { fillCreditEUR } from "@/lib/fill-credit-tiers";
 
 export async function POST(req: Request) {
   let body: { user_id?: number; instance_id?: number; pay_with?: string };
@@ -29,6 +32,31 @@ export async function POST(req: Request) {
       instanceId: instance_id as number,
       bookingId: booking.id,
     });
+    // Grant fill credit based on occupancy + time proximity (before this booking)
+    const capacity = inst.capacity ?? 20;
+    const booked = inst.bookings_count ?? 0;
+    const sessionDate = inst.date ? `${inst.date}T12:00:00` : undefined;
+    const fillEur = fillCreditEUR(booked, capacity, sessionDate);
+    if (fillEur > 0) {
+      const classLabel = inst.class_type?.trim() || "Class";
+      recordBuiltinFillCredit(
+        user_id as number,
+        fillEur,
+        instance_id as number,
+        `Fill incentive · ${classLabel} (${Math.round((booked / capacity) * 100)}% full)`,
+      );
+    }
+    try {
+      incrementBuiltinClassBookings(instance_id as number);
+    } catch {
+      // Non-fatal: schedule may not reflect updated occupancy until refresh
+    }
+  } else {
+    try {
+      incrementBuiltinClassBookings(instance_id as number);
+    } catch {
+      // Non-fatal
+    }
   }
   return NextResponse.json(booking, { status: 201 });
 }

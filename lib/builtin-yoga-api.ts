@@ -6,6 +6,7 @@ import type {
   BackendStudio,
   BackendUser,
 } from "@/components/api/backend";
+import { DEFAULT_CLASS_PRICE_EUR, fillCreditEUR } from "@/lib/fill-credit-tiers";
 import { getStudiosForSearch } from "@/lib/search-content";
 import { getClassesForWeekday, type CalEvent, type YogaEventType } from "@/lib/yoga-weekly-schedule";
 
@@ -41,16 +42,16 @@ function parseTimeTo24h(t: string): string {
 
 function priceForType(type: YogaEventType): number {
   const map: Partial<Record<YogaEventType, number>> = {
-    sound: 18,
-    power: 16,
-    yin: 14,
-    vinyasa: 15,
-    meditation: 12,
-    prenatal: 17,
-    breath: 13,
-    reset: 14,
+    sound: 20,
+    power: 20,
+    yin: 18,
+    vinyasa: 20,
+    meditation: 16,
+    prenatal: 22,
+    breath: 18,
+    reset: 16,
   };
-  return map[type] ?? 14;
+  return map[type] ?? DEFAULT_CLASS_PRICE_EUR;
 }
 
 function stableInstanceId(studioId: number, iso: string, time24: string, name: string): number {
@@ -193,6 +194,31 @@ type RuntimeCreditPurchase = { amount: number; label: string; createdAt: string;
 const runtimeCreditPurchases = new Map<number, RuntimeCreditPurchase[]>();
 let nextPurchaseTxnId = 1;
 
+/** Fill credits granted on booking (built-in API only) — dynamic by occupancy at booking time. */
+type RuntimeFillCredit = { amount: number; instanceId: number; reason: string; createdAt: string; txnId: number };
+const runtimeFillCredits = new Map<number, RuntimeFillCredit[]>();
+let nextFillCreditTxnId = 1;
+
+export function recordBuiltinFillCredit(
+  userId: number,
+  amountEUR: number,
+  instanceId: number,
+  reason: string,
+) {
+  const amount = Math.max(0, Math.round(amountEUR));
+  if (amount <= 0) return;
+  const list = runtimeFillCredits.get(userId) ?? [];
+  const txnId = 9_000_000 + nextFillCreditTxnId++;
+  list.push({
+    amount,
+    instanceId,
+    reason: reason.trim() || "Fill incentive",
+    createdAt: new Date().toISOString().slice(0, 10),
+    txnId,
+  });
+  runtimeFillCredits.set(userId, list);
+}
+
 export function recordBuiltinBookingCreditDebit(
   userId: number,
   debit: Pick<RuntimeCreditDebit, "amount" | "instanceId" | "bookingId">,
@@ -227,6 +253,22 @@ function runtimePurchasesForUser(userId: number): RuntimeCreditPurchase[] {
 
 function runtimeDebitsForUser(userId: number): RuntimeCreditDebit[] {
   return runtimeCreditDebits.get(userId) ?? [];
+}
+
+function runtimeFillCreditsForUser(userId: number): RuntimeFillCredit[] {
+  return runtimeFillCredits.get(userId) ?? [];
+}
+
+/** Increment bookings_count for an instance so next fetch reflects the new booking. */
+export function incrementBuiltinClassBookings(instanceId: number) {
+  const inst = allBuiltinClasses().find((c) => c.id === instanceId);
+  if (inst && typeof inst.bookings_count === "number") {
+    inst.bookings_count = Math.min(inst.capacity ?? 20, inst.bookings_count + 1);
+    if (inst.occupancy_rate != null) {
+      const cap = inst.capacity ?? 20;
+      inst.occupancy_rate = cap > 0 ? Math.round((inst.bookings_count / cap) * 100) : 0;
+    }
+  }
 }
 
 export function builtinBooking(userId: number, inst: BackendClassInstance): BackendBooking {
@@ -318,6 +360,18 @@ export function builtinCredits(userId: number): BackendCreditBalance {
     created_at: p.createdAt,
   }));
 
+  const fillCredits = runtimeFillCreditsForUser(userId);
+  const fillCreditTxns: BackendCreditTxn[] = fillCredits.map((f) => ({
+    id: f.txnId,
+    user_id: userId,
+    type: "fill_credit",
+    amount: f.amount,
+    reason: f.reason,
+    source_instance_id: f.instanceId,
+    created_at: f.createdAt,
+  }));
+  const fillCreditSum = fillCredits.reduce((s, f) => s + f.amount, 0);
+
   const runtimeTxns: BackendCreditTxn[] = runtime.map((d, i) => ({
     id: userId * 50_000 + i + 1,
     user_id: userId,
@@ -328,10 +382,13 @@ export function builtinCredits(userId: number): BackendCreditBalance {
     created_at: d.createdAt,
   }));
 
-  const transactions = [...purchaseTxns, ...runtimeTxns, ...[...rows].sort((a, b) => b.created_at.localeCompare(a.created_at))].sort(
-    (a, b) => b.created_at.localeCompare(a.created_at),
-  );
-  const balance = Math.max(0, baseBalance - runtimeSum + purchaseSum);
+  const transactions = [
+    ...purchaseTxns,
+    ...fillCreditTxns,
+    ...runtimeTxns,
+    ...[...rows].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+  ].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const balance = Math.max(0, baseBalance - runtimeSum + purchaseSum + fillCreditSum);
 
   return {
     user_id: userId,

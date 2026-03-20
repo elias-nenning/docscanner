@@ -86,19 +86,52 @@ function baseUrl() {
   return url.replace(/\/+$/, "");
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${baseUrl()}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
+/** Credits always use built-in Next.js API; external backend may not have credits routes. */
+function creditsBaseUrl() {
+  return "";
+}
+
+function isNetworkError(e: unknown): boolean {
+  if (e instanceof TypeError && e.message === "Failed to fetch") return true;
+  if (e instanceof Error && /failed to fetch|networkerror|load failed/i.test(e.message)) return true;
+  return false;
+}
+
+function is404NotFound(e: unknown): boolean {
+  if (e instanceof Error && /^404\s/i.test(e.message)) return true;
+  return false;
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit, base = baseUrl, retryOn404 = false): Promise<T> {
+  const url = base();
+  const doFetch = (baseUrl: string) =>
+    fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+    });
+
+  try {
+    const res = await doFetch(url);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
+    }
+    return (await res.json()) as T;
+  } catch (e) {
+    const shouldRetry = url && (isNetworkError(e) || (retryOn404 && is404NotFound(e)));
+    if (shouldRetry) {
+      const res = await doFetch("");
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
+      }
+      return (await res.json()) as T;
+    }
+    throw e;
   }
-  return (await res.json()) as T;
 }
 
 export const backend = {
@@ -122,7 +155,7 @@ export const backend = {
     const qs = sp.toString();
     return apiFetch<BackendClassInstance[]>(`/api/v1/classes${qs ? `?${qs}` : ""}`);
   },
-  getClass: (instanceId: number) => apiFetch<BackendClassInstance>(`/api/v1/classes/${instanceId}`),
+  getClass: (instanceId: number) => apiFetch<BackendClassInstance>(`/api/v1/classes/${instanceId}`, undefined, baseUrl, true),
 
   // --- Bookings ---
   createBooking: (body: {
@@ -137,17 +170,17 @@ export const backend = {
     return apiFetch<BackendBooking>(`/api/v1/bookings`, {
       method: "POST",
       body: JSON.stringify(payload),
-    });
+    }, baseUrl, true);
   },
   listUserBookings: (userId: number) => apiFetch<BackendBooking[]>(`/api/v1/bookings/user/${userId}`),
   cancelBooking: (bookingId: number) => apiFetch<{ status: string; booking_id: number }>(`/api/v1/bookings/${bookingId}/cancel`, { method: "PATCH" }),
 
   // --- Credits ---
-  getCredits: (userId: number) => apiFetch<BackendCreditBalance>(`/api/v1/credits/user/${userId}`),
+  getCredits: (userId: number) => apiFetch<BackendCreditBalance>(`/api/v1/credits/user/${userId}`, undefined, creditsBaseUrl),
   purchaseCreditPack: (userId: number, packId: string) =>
     apiFetch<BackendCreditBalance>(`/api/v1/credits/user/${userId}/purchase`, {
       method: "POST",
       body: JSON.stringify({ pack_id: packId }),
-    }),
+    }, creditsBaseUrl),
 };
 

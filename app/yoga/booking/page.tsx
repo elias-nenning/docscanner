@@ -10,6 +10,7 @@ import { useYogaBookings } from "@/components/yoga/useYogaBookings";
 import { useCreditsWallet } from "@/hooks/useCreditsWallet";
 import { addLocalCreditSpend } from "@/hooks/useLocalWalletSpend";
 import { StudioScaffold } from "@/components/ds/studio";
+import { fillCreditEUR } from "@/lib/fill-credit-tiers";
 
 type PaymentMethod = "credits" | "card" | "membership";
 
@@ -42,15 +43,14 @@ function BookingInner() {
       const n = Number(priceParam);
       if (!Number.isNaN(n) && n > 0) return Math.round(n);
     }
-    if (name.toLowerCase().includes("sound")) return 18;
-    if (name.toLowerCase().includes("power")) return 16;
-    return 14;
-  }, [priceParam, name]);
+    return 20;
+  }, [priceParam]);
 
   const [method, setMethod] = useState<PaymentMethod>("credits");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [fillCreditEur, setFillCreditEur] = useState<number | null>(null);
 
   const submitting = useRef(false);
   const navigateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,6 +60,22 @@ function BookingInner() {
       if (navigateTimer.current) clearTimeout(navigateTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!instanceIdNum) {
+      setFillCreditEur(null);
+      return;
+    }
+    backend
+      .getClass(instanceIdNum)
+      .then((c) => {
+        const cap = c.capacity ?? 20;
+        const booked = c.bookings_count ?? 0;
+        const sessionDate = c.date ? `${c.date}T12:00:00` : undefined;
+        setFillCreditEur(fillCreditEUR(booked, cap, sessionDate));
+      })
+      .catch(() => setFillCreditEur(null));
+  }, [instanceIdNum]);
 
   const creditScopeKey = user?.id != null ? String(user.id) : "guest";
   const creditsBalance = balanceEUR;
@@ -189,6 +205,12 @@ function BookingInner() {
             <div className="text-xs text-muted-foreground">Price</div>
             <div className="text-base font-extrabold text-foreground">€{price}</div>
           </div>
+          {fillCreditEur != null && fillCreditEur > 0 ? (
+            <div className="mt-2 flex items-center justify-between rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1.5">
+              <div className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200">Fill credit (pay with credits)</div>
+              <div className="text-sm font-bold text-emerald-700 dark:text-emerald-400">+€{fillCreditEur}</div>
+            </div>
+          ) : null}
         </div>
 
         <div className="rounded-xl border border-border bg-card p-3.5">

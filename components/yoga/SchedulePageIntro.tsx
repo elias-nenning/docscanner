@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { getYogaStudioById } from "@/components/yoga/useYogaStudio";
+import { fillCreditAmounts } from "@/lib/fill-credit-tiers";
 
 function ScheduleIntroInner() {
   const sp = useSearchParams();
@@ -25,13 +26,22 @@ function ScheduleIntroInner() {
           )}
         </h2>
         <p className="ff-page-desc mt-1 max-w-2xl">
-          Slow classes sometimes show a tiny <span className="font-medium text-foreground">€5 or €3 perk</span> to sweeten
-          the deal. The list below stays in sync when people book.
+          Classes cost €20. Fill credits (up to €10) depend on occupancy and how soon the session is — tomorrow or today earns more than next week.
         </p>
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-2 md:justify-end">
-        <span className="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:text-emerald-200">€5</span>
-        <span className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-900 dark:text-amber-100">€3</span>
+        {fillCreditAmounts().map((eur) => (
+          <span
+            key={eur}
+            className={
+              eur >= 6
+                ? "rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:text-emerald-200"
+                : "rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-900 dark:text-amber-100"
+            }
+          >
+            €{eur}
+          </span>
+        ))}
         <nav className="flex flex-wrap gap-x-2 text-[11px] font-medium" aria-label="Related">
                 <Link href="/dashboard/directory" className="text-primary hover:underline">
                   Studios

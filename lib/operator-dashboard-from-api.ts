@@ -1,4 +1,5 @@
 import type { BackendClassInstance, BackendStudio } from "@/components/api/backend";
+import { fillCreditEUR } from "@/lib/fill-credit-tiers";
 
 export type DashboardClassRow = {
   id: number;
@@ -33,12 +34,8 @@ function inferBooked(c: BackendClassInstance, capacity: number): number {
   return Math.min(capacity, Math.round(frac * capacity));
 }
 
-/** Same thresholds as the operator dashboard fill-credit callouts. */
-export function isIncentiveSlot(booked: number, capacity: number): boolean {
-  if (capacity <= 0) return false;
-  const rate = booked / capacity;
-  return rate < 0.6;
-}
+/** Whether this slot qualifies for any fill incentive (uses central tiers). */
+export { isFillIncentiveSlot as isIncentiveSlot } from "@/lib/fill-credit-tiers";
 
 export function classInstanceToDashboardRow(c: BackendClassInstance): DashboardClassRow {
   const capacity = Math.max(1, c.capacity ?? 20);
@@ -68,8 +65,11 @@ export function buildPortfolioFromApi(
     const fills = rows.map((r) => (r.capacity > 0 ? r.booked / r.capacity : 0));
     const avgFill = fills.length ? Math.round((fills.reduce((a, b) => a + b, 0) / fills.length) * 100) : 0;
     let creditsOffered = 0;
-    for (const r of rows) {
-      if (isIncentiveSlot(r.booked, r.capacity)) creditsOffered += 1;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const c = sc[i];
+      const sessionDate = c?.date ? `${c.date}T12:00:00` : undefined;
+      creditsOffered += fillCreditEUR(r.booked, r.capacity, sessionDate);
     }
     return {
       id: String(st.id),

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { backend, type BackendClassInstance, type BackendStudio } from "@/components/api/backend";
 import { StudioPanel } from "@/components/ds/studio";
+import { fillCreditLabel } from "@/lib/fill-credit-tiers";
 import { formatScheduleDayHeader } from "@/lib/format-schedule-date";
 import { cn } from "@/lib/utils";
 
@@ -19,17 +20,9 @@ function bookingHref(studioId: number, row: BackendClassInstance) {
     name: row.class_type ?? "Class",
     teacher: row.instructor ?? "",
     dur: "",
-    price: String(row.price_eur ?? 14),
+    price: String(row.price_eur ?? 20),
   });
   return `/yoga/booking?${params.toString()}`;
-}
-
-function fillTierLabel(booked: number, cap: number): string | null {
-  if (cap <= 0) return null;
-  const r = booked / cap;
-  if (r < 0.4) return "€5 fill";
-  if (r < 0.6) return "€3 fill";
-  return null;
 }
 
 export default function YogaScheduleFromApi({ studioId }: { studioId: number }) {
@@ -123,7 +116,8 @@ export default function YogaScheduleFromApi({ studioId }: { studioId: number }) 
                 const booked = row.bookings_count ?? 0;
                 const full = cap > 0 && booked >= cap;
                 const spots = cap > 0 ? Math.max(0, cap - booked) : null;
-                const tier = !full && cap > 0 ? fillTierLabel(booked, cap) : null;
+                const sessionDate = row.date ? `${row.date}T12:00:00` : undefined;
+                const tier = !full && cap > 0 ? fillCreditLabel(booked, cap, sessionDate) : null;
                 const pct = cap > 0 ? Math.min(100, Math.round((booked / cap) * 100)) : 0;
 
                 return (
@@ -148,7 +142,7 @@ export default function YogaScheduleFromApi({ studioId }: { studioId: number }) 
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
                       <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <span className="font-semibold tabular-nums text-foreground">€{row.price_eur ?? "-"}</span>
+                        <span className="font-semibold tabular-nums text-foreground">€{row.price_eur ?? 20}</span>
                         {spots != null ? (
                           <span className="rounded-md bg-muted/80 px-1.5 py-0.5 tabular-nums text-foreground/90">
                             {spots} left

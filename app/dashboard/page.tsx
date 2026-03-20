@@ -29,6 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useOperatorDashboardData } from "@/hooks/use-operator-dashboard-data";
+import { fillCreditEUR, fillCreditLabel } from "@/lib/fill-credit-tiers";
 import { yogaApiModeLabel } from "@/lib/yoga-data-source";
 import { cn } from "@/lib/utils";
 
@@ -44,11 +45,15 @@ export default function Dashboard() {
     error: dashboardError,
   } = useOperatorDashboardData();
 
-  function getIncentive(booked: number, capacity: number) {
-    const rate = booked / capacity;
-    if (rate < 0.4) return { label: "€5 fill credit", variant: "secondary" as const, eur: 5 };
-    if (rate < 0.6) return { label: "€3 fill credit", variant: "outline" as const, eur: 3 };
-    return null;
+  function getIncentive(booked: number, capacity: number, sessionDate?: string) {
+    const eur = fillCreditEUR(booked, capacity, sessionDate);
+    if (eur <= 0) return null;
+    const label = fillCreditLabel(booked, capacity, sessionDate);
+    return {
+      label: label ? `${label} credit` : `€${eur} fill credit`,
+      variant: eur >= 6 ? ("secondary" as const) : ("outline" as const),
+      eur,
+    };
   }
 
   function getFillColor(booked: number, capacity: number) {
@@ -61,9 +66,10 @@ export default function Dashboard() {
   const totalCapacity = classes.reduce((s, c) => s + c.capacity, 0);
   const totalBooked = classes.reduce((s, c) => s + c.booked, 0);
   const fillRate = totalCapacity > 0 ? Math.round((totalBooked / totalCapacity) * 100) : 0;
-  const incentiveCount = classes.filter((c) => getIncentive(c.booked, c.capacity)).length;
+  const todayStr = dataDate ?? new Date().toISOString().slice(0, 10);
+  const incentiveCount = classes.filter((c) => getIncentive(c.booked, c.capacity, todayStr)).length;
   const fillCreditExposureEUR = classes.reduce((sum, c) => {
-    const inc = getIncentive(c.booked, c.capacity);
+    const inc = getIncentive(c.booked, c.capacity, todayStr);
     return sum + (inc ? inc.eur : 0);
   }, 0);
   const openSeats = Math.max(0, totalCapacity - totalBooked);
@@ -106,7 +112,7 @@ export default function Dashboard() {
     {
       label: "Fill offers on",
       value: incentiveCount,
-      hint: "Classes eligible for €3 / €5 nudge",
+      hint: "Classes with fill incentive (€3–€8 by occupancy)",
       icon: Sparkles,
       accent: "text-amber-600 dark:text-amber-400",
       stripe: "indigo" as const,
@@ -314,7 +320,7 @@ export default function Dashboard() {
                   </TableHeader>
                   <TableBody>
                     {classes.map((cls) => {
-                      const incentive = getIncentive(cls.booked, cls.capacity);
+                      const incentive = getIncentive(cls.booked, cls.capacity, todayStr);
                       const rowFillRate = cls.capacity > 0 ? Math.round((cls.booked / cls.capacity) * 100) : 0;
                       return (
                         <TableRow key={cls.id}>
@@ -413,7 +419,7 @@ export default function Dashboard() {
                             <span className="text-xs tabular-nums text-muted-foreground">{s.avgFill}%</span>
                           </div>
                         </TableCell>
-                        <TableCell className="tabular-nums text-muted-foreground">{s.creditsOffered}</TableCell>
+                        <TableCell className="tabular-nums text-muted-foreground">€{s.creditsOffered}</TableCell>
                         <TableCell>
                           <Badge variant={s.avgFill >= 75 ? "default" : "secondary"} className="text-[10px] font-semibold">
                             {s.avgFill >= 75 ? "Strong" : "Watch"}

@@ -2,9 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { fillCreditEUR } from "@/lib/fill-credit-tiers";
 
 type EventType = "vinyasa" | "yin" | "power" | "meditation" | "sound" | "prenatal" | "breath" | "reset";
-type CalEvent = { time: string; name: string; type: EventType; dur: string; teacher: string; spots: number | null };
+type CalEvent = { time: string; name: string; type: EventType; dur: string; teacher: string; spots: number | null; price?: number };
+
+const DEFAULT_CAPACITY = 20;
+const DEFAULT_PRICE = 20;
 
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -58,12 +62,34 @@ const EVENTS: Record<number, CalEvent[]> = {
   ],
 };
 
+const CALENDAR_YEAR = 2026;
+const CALENDAR_MONTH = 3;
+
+function todayDay(): number {
+  const now = new Date();
+  if (CALENDAR_YEAR === now.getFullYear() && CALENDAR_MONTH === now.getMonth() + 1) {
+    return now.getDate();
+  }
+  return 16; // Demo: March 16 when viewing March 2026
+}
+
+function creditForEvent(ev: CalEvent, selectedDay: number): number {
+  const capacity = DEFAULT_CAPACITY;
+  const booked = ev.spots != null ? Math.max(0, capacity - ev.spots) : 0;
+  const sessionDate = `${CALENDAR_YEAR}-${String(CALENDAR_MONTH).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}T12:00:00`;
+  const now = new Date();
+  const isViewingCurrentMonth = CALENDAR_YEAR === now.getFullYear() && CALENDAR_MONTH === now.getMonth() + 1;
+  const today = todayDay();
+  const demoToday = isViewingCurrentMonth ? undefined : new Date(CALENDAR_YEAR, CALENDAR_MONTH - 1, today);
+  return fillCreditEUR(booked, capacity, sessionDate, demoToday);
+}
+
 export default function YogaCalendarDemo({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter();
   const sp = useSearchParams();
   const studioId = sp.get("studio") || "prana";
 
-  const [selectedDay, setSelectedDay] = useState(16);
+  const [selectedDay, setSelectedDay] = useState(() => todayDay());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const dayName = DAY_NAMES[(selectedDay - 1) % 7];
@@ -85,6 +111,7 @@ export default function YogaCalendarDemo({ embedded = false }: { embedded?: bool
     params.set("name", ev.name);
     params.set("teacher", ev.teacher);
     params.set("dur", ev.dur);
+    params.set("price", String(ev.price ?? DEFAULT_PRICE));
     router.push(`/yoga/booking?${params.toString()}`);
   }
 
@@ -93,10 +120,10 @@ export default function YogaCalendarDemo({ embedded = false }: { embedded?: bool
       <div className="p-4 lg:p-5">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <div className="text-lg font-extrabold text-zinc-900 tracking-tight">March 2026</div>
-            <div className="text-xs text-zinc-600">Studio schedule</div>
+            <div className="text-lg font-extrabold text-zinc-900 dark:text-zinc-100 tracking-tight">March 2026</div>
+            <div className="text-xs text-zinc-600 dark:text-zinc-400">Studio schedule · €20/session · fill credits up to €10</div>
           </div>
-          <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-xl text-sm font-semibold" onClick={() => setSelectedDay(16)}>
+          <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-xl text-sm font-semibold" onClick={() => setSelectedDay(todayDay())}>
             Today
           </button>
         </div>
@@ -114,7 +141,7 @@ export default function YogaCalendarDemo({ embedded = false }: { embedded?: bool
               {WEEKS.map((week, wi) => (
                 <div key={wi} className="grid grid-cols-7">
                   {week.map((cell, di) => {
-                    const isToday = cell.cur && cell.d === 16;
+                    const isToday = cell.cur && cell.d === todayDay();
                     const isSelectedDay = cell.cur && cell.d === selectedDay;
                     const evts = cell.cur ? EVENTS[cell.d] ?? [] : [];
                     const visible = evts.slice(0, 2);
@@ -140,6 +167,7 @@ export default function YogaCalendarDemo({ embedded = false }: { embedded?: bool
                           {visible.map((ev) => {
                             const ts = T[ev.type];
                             const key = `cur-${cell.d}-${ev.time}-${ev.name}`;
+                            const cr = creditForEvent(ev, cell.d);
                             return (
                               <button
                                 key={key}
@@ -157,6 +185,9 @@ export default function YogaCalendarDemo({ embedded = false }: { embedded?: bool
                                 }}
                               >
                                 {ev.time.replace(":00", "").replace(" AM", "am").replace(" PM", "pm")} {ev.name}
+                                {cr > 0 ? (
+                                  <span className="ml-1 font-bold text-emerald-600">€{cr}</span>
+                                ) : null}
                               </button>
                             );
                           })}
@@ -173,7 +204,7 @@ export default function YogaCalendarDemo({ embedded = false }: { embedded?: bool
           <div className="w-[320px] shrink-0">
             <div className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-sm">
               <div className="text-[10px] font-bold tracking-wider uppercase text-zinc-500">
-                {selectedDay === 16 ? "Today" : "March"} · {dayName}
+                {selectedDay === todayDay() ? "Today" : "March"} · {dayName}
               </div>
               <div className="text-4xl font-extrabold text-zinc-900 mt-1">{selectedDay}</div>
               <div className="text-sm text-zinc-600 mt-1">{selectedEvents.length ? `${selectedEvents.length} classes scheduled` : "No classes"}</div>
@@ -185,6 +216,8 @@ export default function YogaCalendarDemo({ embedded = false }: { embedded?: bool
                 const isFull = ev.spots === 0;
                 const key = `cur-${selectedDay}-${ev.time}-${ev.name}`;
                 const selected = selectedKey ? selectedKey === key : i === 0;
+                const price = ev.price ?? DEFAULT_PRICE;
+                const cr = creditForEvent(ev, selectedDay);
                 return (
                   <div key={key} className={`bg-white border rounded-2xl p-4 shadow-sm ${selected ? "border-indigo-200" : "border-zinc-200"}`} onClick={() => setSelectedKey(key)}>
                     <div className="flex items-start justify-between gap-3">
@@ -195,9 +228,18 @@ export default function YogaCalendarDemo({ embedded = false }: { embedded?: bool
                         </div>
                         <div className="text-sm text-zinc-600">{ev.teacher}</div>
                       </div>
-                      <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-full border" style={{ background: ts.bg, borderColor: ts.border, color: ts.text }}>
+                      <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-full border shrink-0" style={{ background: ts.bg, borderColor: ts.border, color: ts.text }}>
                         {ts.label}
                       </span>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-bold text-zinc-900">€{price}</span>
+                      {cr > 0 ? (
+                        <span className="text-xs font-semibold bg-emerald-50 border border-emerald-200 text-emerald-700 dark:bg-emerald-950/30 dark:border-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-full">
+                          +€{cr} fill credit
+                        </span>
+                      ) : null}
                     </div>
 
                     <div className="mt-3 flex items-center justify-between gap-3">
