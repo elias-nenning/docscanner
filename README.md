@@ -1,4 +1,4 @@
-# DocScan
+# DocScanner
 
 Universeller KI-Dokumentenscanner als Next.js 14 Web-App.  
 3-Spalten-Layout: Dokument hochladen, Schema definieren, Ergebnis ansehen und als XLS exportieren.
