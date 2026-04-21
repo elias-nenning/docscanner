@@ -1,0 +1,7 @@
+node_modules
+.next
+.tmp-uploads
+.env
+.env.local
+# Eigenes Git-Repo – nicht doppelt einbinden
+Wilhelm-Techstack/

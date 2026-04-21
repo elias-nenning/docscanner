@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocScan – KI-Dokumentenscanner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <style>
+    .drop-active { border-color: #3b82f6 !important; background: #eff6ff !important; }
+    .field-chip { transition: all 0.15s; cursor: pointer; user-select: none; }
+    .field-chip:hover { transform: translateY(-1px); }
+    .conf-bar { height: 6px; border-radius: 3px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 1s linear infinite; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex flex-col overflow-hidden">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200 px-6 py-3 flex items-center shrink-0">
+    <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
+      <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+      </svg>
+    </div>
+    <span class="text-xl font-bold text-gray-900">DocScan</span>
+    <span class="text-sm text-gray-400 ml-2 hidden sm:inline">KI-Dokumentenscanner</span>
+  </header>
+
+  <!-- 3-Column Layout -->
+  <main class="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 overflow-hidden min-h-0">
+
+    <!-- Col 1: Upload -->
+    <div class="flex flex-col gap-2 min-h-0">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-gray-400 px-1">Dokument</h2>
+      <div id="upload-area" class="flex-1 min-h-0"></div>
+    </div>
+
+    <!-- Col 2: Schema -->
+    <div class="flex flex-col gap-2 min-h-0">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-gray-400 px-1">Gesuchte Felder</h2>
+      <div class="flex-1 rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-4 overflow-auto min-h-0">
+        <div>
+          <h3 class="text-sm font-semibold text-gray-700 mb-2">Vordefinierte Felder</h3>
+          <div id="preset-fields" class="flex flex-wrap gap-2"></div>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold text-gray-700 mb-2">Eigene Felder</h3>
+          <div id="custom-fields" class="flex flex-wrap gap-2 mb-2"></div>
+          <div class="flex gap-2">
+            <input id="custom-input" type="text" placeholder="z.B. Kundennummer"
+              class="flex-1 h-9 px-3 rounded-lg border border-gray-300 text-sm outline-none focus:ring-2 focus:ring-blue-500">
+            <button onclick="addCustomField()"
+              class="h-9 px-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium">+</button>
+          </div>
+        </div>
+        <div class="mt-auto pt-2">
+          <p id="field-count" class="text-xs text-gray-400 mb-2"></p>
+          <button id="scan-btn" onclick="startScan()" disabled
+            class="w-full h-10 rounded-lg bg-blue-600 text-white font-medium text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            Scan starten
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Col 3: Result -->
+    <div class="flex flex-col gap-2 min-h-0">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-gray-400 px-1">Ergebnis</h2>
+      <div id="result-area" class="flex-1 rounded-xl border border-gray-200 bg-white overflow-auto min-h-0"></div>
+    </div>
+  </main>
+
+<script>
+// ===== STATE =====
+let currentFile = null;
+let schema = [
+  { name: 'Rechnungsnummer', aktiv: true, custom: false },
+  { name: 'Betrag', aktiv: true, custom: false },
+  { name: 'Datum', aktiv: true, custom: false },
+  { name: 'Aussteller', aktiv: true, custom: false },
+  { name: 'Empfänger', aktiv: true, custom: false },
+  { name: 'IBAN', aktiv: false, custom: false },
+  { name: 'Steuernummer', aktiv: false, custom: false },
+  { name: 'Vertragsnummer', aktiv: false, custom: false },
+  { name: 'Fälligkeitsdatum', aktiv: false, custom: false },
+  { name: 'Betreff', aktiv: false, custom: false },
+];
+let result = null;
+let loading = false;
+let error = null;
+let activeTab = 'felder';
+
+// ===== SCAN URL (auto-derived from current page URL) =====
+const pp = window.location.pathname.split('/');
+pp[pp.length - 1] = 'docscan-api';
+const SCAN_URL = window.location.origin + pp.join('/');
+
+// ===== UPLOAD =====
+const uploadArea = document.getElementById('upload-area');
+
+uploadArea.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); uploadArea.querySelector('.drop-zone')?.classList.add('drop-active'); });
+uploadArea.addEventListener('dragleave', e => { e.preventDefault(); uploadArea.querySelector('.drop-zone')?.classList.remove('drop-active'); });
+uploadArea.addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); uploadArea.querySelector('.drop-zone')?.classList.remove('drop-active'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+let fileDataUrl = null;
+
+function handleFile(file) {
+  if (!file) return;
+  if (file.size > 50 * 1024 * 1024) { alert('Datei zu groß (max. 50 MB)'); return; }
+  currentFile = file;
+  result = null; error = null;
+  const reader = new FileReader();
+  reader.onload = () => { fileDataUrl = reader.result; renderUpload(); };
+  reader.readAsDataURL(file);
+  renderResult(); updateScanBtn();
+}
+
+function removeFile(e) {
+  if (e) e.stopPropagation();
+  currentFile = null; fileDataUrl = null; result = null; error = null;
+  renderUpload(); renderResult(); updateScanBtn();
+}
+
+function openFilePicker() {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.pdf,.jpg,.jpeg,.png,.webp,.tiff,.tif';
+  inp.onchange = () => { if (inp.files[0]) handleFile(inp.files[0]); };
+  inp.click();
+}
+
+function renderUpload() {
+  if (!currentFile) {
+    uploadArea.innerHTML = `
+      <div class="drop-zone h-full rounded-xl border-2 border-dashed border-gray-300 bg-white flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 transition" onclick="openFilePicker()">
+        <svg class="w-10 h-10 text-gray-300 mb-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+        </svg>
+        <p class="font-medium text-gray-600">Datei hierher ziehen</p>
+        <p class="text-sm text-gray-400 mt-1">oder klicken zum Auswählen</p>
+        <p class="text-xs text-gray-300 mt-3">PDF, JPG, PNG, TIFF, WEBP · max. 50 MB</p>
+      </div>`;
+    return;
+  }
+
+  const isPdf = currentFile.type === 'application/pdf';
+  const isImg = currentFile.type.startsWith('image/');
+  const kb = (currentFile.size / 1024).toFixed(0);
+
+  let preview = '<div class="flex-1 flex items-center justify-center text-sm text-gray-400">Keine Vorschau</div>';
+  if (isPdf && fileDataUrl) preview = '<embed src="' + fileDataUrl + '" type="application/pdf" class="flex-1 w-full">';
+  else if (isImg && fileDataUrl) preview = '<img src="' + fileDataUrl + '" alt="Vorschau" class="flex-1 object-contain p-2 min-h-0">';
+
+  uploadArea.innerHTML = `
+    <div class="h-full rounded-xl border border-gray-200 bg-white flex flex-col overflow-hidden">
+      <div class="flex items-center justify-between p-3 border-b border-gray-100 shrink-0">
+        <div class="flex items-center gap-2 text-sm min-w-0">
+          <span class="text-lg">${isPdf ? '📄' : '🖼️'}</span>
+          <div class="min-w-0">
+            <p class="font-medium truncate">${currentFile.name}</p>
+            <p class="text-xs text-gray-500">${kb} KB</p>
+          </div>
+        </div>
+        <button onclick="removeFile(event)" class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 text-sm">✕</button>
+      </div>
+      ${preview}
+    </div>`;
+}
+
+// ===== SCHEMA =====
+function toggleField(name) {
+  const f = schema.find(s => s.name === name);
+  if (f) f.aktiv = !f.aktiv;
+  renderSchema(); updateScanBtn();
+}
+
+function addCustomField() {
+  const inp = document.getElementById('custom-input');
+  const name = inp.value.trim();
+  if (!name || schema.some(s => s.name.toLowerCase() === name.toLowerCase())) return;
+  schema.push({ name, aktiv: true, custom: true });
+  inp.value = '';
+  renderSchema(); updateScanBtn();
+}
+
+function removeCustomField(name) {
+  schema = schema.filter(s => s.name !== name);
+  renderSchema(); updateScanBtn();
+}
+
+function renderSchema() {
+  document.getElementById('preset-fields').innerHTML = schema.filter(f => !f.custom).map(f =>
+    '<button onclick="toggleField(\'' + f.name + '\')" class="field-chip rounded-full border px-3 py-1.5 text-sm ' +
+    (f.aktiv ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300') +
+    '">' + f.name + '</button>'
+  ).join('');
+
+  document.getElementById('custom-fields').innerHTML = schema.filter(f => f.custom).map(f =>
+    '<span class="field-chip inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700">' +
+    f.name + '<button onclick="removeCustomField(\'' + f.name + '\')" class="hover:text-emerald-900 font-bold">✕</button></span>'
+  ).join('');
+
+  const c = schema.filter(f => f.aktiv).length;
+  document.getElementById('field-count').textContent = c + (c === 1 ? ' Feld' : ' Felder') + ' ausgewählt';
+}
+
+function updateScanBtn() {
+  document.getElementById('scan-btn').disabled = !currentFile || schema.filter(f => f.aktiv).length === 0 || loading;
+}
+
+// ===== SCAN =====
+async function startScan() {
+  if (!currentFile || loading) return;
+  const aktive = schema.filter(f => f.aktiv).map(f => f.name);
+  if (!aktive.length) return;
+
+  loading = true; error = null; result = null;
+  renderResult(); updateScanBtn();
+
+  try {
+    const b64 = await toBase64(currentFile);
+    const res = await fetch(SCAN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ datei_name: currentFile.name, datei_typ: currentFile.type, datei_base64: b64, gesuchte_felder: aktive })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + (await res.text()));
+    const data = await res.json();
+    result = Array.isArray(data) ? data[0] : data;
+  } catch (e) {
+    error = (e.message || 'Unbekannter Fehler') + ' | URL: ' + SCAN_URL;
+  } finally {
+    loading = false; renderResult(); updateScanBtn();
+  }
+}
+
+function toBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result.split(',')[1]);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+// ===== RESULT =====
+function setTab(t) { activeTab = t; renderResult(); }
+
+function renderResult() {
+  const area = document.getElementById('result-area');
+
+  if (error) {
+    area.innerHTML = '<div class="h-full flex flex-col items-center justify-center p-6 text-center">' +
+      '<div class="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-3 text-red-600 text-xl">✕</div>' +
+      '<p class="font-medium text-red-700">Fehler</p>' +
+      '<p class="text-sm text-red-600 mt-1 max-w-xs">' + error + '</p></div>';
+    return;
+  }
+
+  if (loading) {
+    area.innerHTML = '<div class="h-full flex flex-col items-center justify-center p-6 text-center">' +
+      '<svg class="w-10 h-10 text-blue-600 spin mb-3" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>' +
+      '<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>' +
+      '<p class="font-medium text-gray-700">KI analysiert...</p>' +
+      '<p class="text-sm text-gray-500 mt-1">Dokument wird per OCR gelesen und ausgewertet</p></div>';
+    return;
+  }
+
+  if (!result) {
+    area.innerHTML = '<div class="h-full flex flex-col items-center justify-center p-6 text-center">' +
+      '<svg class="w-10 h-10 text-gray-300 mb-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">' +
+      '<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m5.231 13.481L15 17.25m-4.5-15H5.625c-.621 0-1.125.504-1.125 1.125v16.5c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>' +
+      '<p class="font-medium text-gray-500">Noch kein Ergebnis</p>' +
+      '<p class="text-sm text-gray-400 mt-1">Lade ein Dokument hoch, wähle Felder<br>und starte den Scan.</p></div>';
+    return;
+  }
+
+  const felder = result.felder || {};
+  const entries = Object.entries(felder);
+
+  const felderHtml = entries.map(([name, f]) => {
+    const k = typeof f.konfidenz === 'number' ? f.konfidenz : 0;
+    const pct = Math.round(k * 100);
+    const low = k < 0.6, mid = k >= 0.6 && k < 0.8;
+    const bc = low ? 'border-red-200 bg-red-50' : mid ? 'border-amber-200 bg-amber-50' : 'border-gray-100';
+    const bar = low ? 'bg-red-500' : mid ? 'bg-amber-500' : 'bg-emerald-500';
+    const hint = low ? ' <span class="text-red-600">✕ Unsicher</span>' : mid ? ' <span class="text-amber-600">⚠ Bitte prüfen</span>' : '';
+    return '<div class="rounded-lg border ' + bc + ' p-3">' +
+      '<p class="text-xs uppercase tracking-wide text-gray-500">' + name + '</p>' +
+      '<p class="mt-1 text-sm font-medium text-gray-900">' + (f.wert || '-') + '</p>' +
+      '<div class="mt-2"><div class="h-1.5 w-full rounded-full bg-gray-200">' +
+      '<div class="h-1.5 rounded-full ' + bar + '" style="width:' + pct + '%"></div></div>' +
+      '<p class="mt-1 text-xs text-gray-500">Konfidenz: ' + pct + '%' + hint + '</p></div></div>';
+  }).join('');
+
+  const tabF = activeTab === 'felder';
+  const tabR = activeTab === 'rohtext';
+
+  area.innerHTML =
+    '<div class="p-4 flex flex-col gap-3 h-full">' +
+      '<div class="flex items-start justify-between shrink-0">' +
+        '<div>' +
+          '<span class="rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-700">' + (result.dokument_typ || 'Dokument') + '</span>' +
+          '<p class="text-sm text-gray-600 mt-2">' + (result.kurzbeschreibung || '') + '</p>' +
+          '<p class="text-xs text-gray-400 mt-1">OCR-Qualität: ' + Math.round((result.ocr_konfidenz || 0) * 100) + '%</p>' +
+        '</div>' +
+        '<button onclick="exportXlsx()" class="shrink-0 flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm hover:bg-gray-50 transition">⬇ XLS</button>' +
+      '</div>' +
+      '<div class="flex gap-1 border-b border-gray-200 shrink-0">' +
+        '<button onclick="setTab(\'felder\')" class="px-3 py-2 text-sm font-medium border-b-2 transition ' + (tabF ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700') + '">Felder (' + entries.length + ')</button>' +
+        '<button onclick="setTab(\'rohtext\')" class="px-3 py-2 text-sm font-medium border-b-2 transition ' + (tabR ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700') + '">Rohtext</button>' +
+      '</div>' +
+      '<div class="flex-1 overflow-auto">' +
+        (tabF
+          ? '<div class="space-y-2">' + (felderHtml || '<p class="text-sm text-gray-400">Keine Felder extrahiert.</p>') + '</div>'
+          : '<div class="space-y-2"><button onclick="copyText()" class="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm hover:bg-gray-50 transition">📋 Kopieren</button>' +
+            '<pre class="whitespace-pre-wrap rounded-lg bg-gray-50 border border-gray-200 p-3 font-mono text-xs text-gray-700">' + (result.volltext || 'Kein Text.') + '</pre></div>'
+        ) +
+      '</div>' +
+    '</div>';
+}
+
+// ===== EXPORT =====
+function exportXlsx() {
+  if (!result || !result.felder) return;
+  const rows = Object.entries(result.felder).map(([n, f]) => ({ Feldname: n, Wert: f.wert || '', 'Konfidenz (%)': Math.round((f.konfidenz || 0) * 100) }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Ergebnis');
+  ws['!cols'] = [{ wch: 25 }, { wch: 40 }, { wch: 15 }];
+  XLSX.writeFile(wb, 'scan-ergebnis.xlsx');
+}
+
+function copyText() {
+  if (result && result.volltext) {
+    navigator.clipboard.writeText(result.volltext).then(() => {
+      const btn = event.target.closest('button');
+      if (btn) { btn.textContent = '✓ Kopiert'; setTimeout(() => { btn.innerHTML = '📋 Kopieren'; }, 1500); }
+    });
+  }
+}
+
+// ===== INIT =====
+document.getElementById('custom-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addCustomField(); } });
+renderUpload();
+renderSchema();
+renderResult();
+updateScanBtn();
+</script>
+</body>
+</html>

@@ -1,0 +1,170 @@
+{
+  "name": "DocScan Web-App",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "docscan",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "trigger-webapp",
+      "name": "triggerWebApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        60,
+        -500
+      ],
+      "webhookId": "docscan-webapp"
+    },
+    {
+      "parameters": {
+        "html": "<!DOCTYPE html>\n<html lang=\"de\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>DocScan – KI-Dokumentenscanner</title>\n  <script src=\"https://cdn.tailwindcss.com\"></script>\n  <script src=\"https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js\"></script>\n  <style>\n    .drop-active { border-color: #3b82f6 !important; background: #eff6ff !important; }\n    .field-chip { transition: all 0.15s; cursor: pointer; user-select: none; }\n    .field-chip:hover { transform: translateY(-1px); }\n    .conf-bar { height: 6px; border-radius: 3px; }\n    @keyframes spin { to { transform: rotate(360deg); } }\n    .spin { animation: spin 1s linear infinite; }\n    ::-webkit-scrollbar { width: 6px; }\n    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }\n  </style>\n</head>\n<body class=\"bg-gray-50 h-screen flex flex-col overflow-hidden\">\n\n  <!-- Header -->\n  <header class=\"bg-white border-b border-gray-200 px-6 py-3 flex items-center shrink-0\">\n    <div class=\"w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3\">\n      <svg class=\"w-5 h-5 text-white\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" viewBox=\"0 0 24 24\">\n        <path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z\"/>\n      </svg>\n    </div>\n    <span class=\"text-xl font-bold text-gray-900\">DocScan</span>\n    <span class=\"text-sm text-gray-400 ml-2 hidden sm:inline\">KI-Dokumentenscanner</span>\n  </header>\n\n  <!-- 3-Column Layout -->\n  <main class=\"flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 overflow-hidden min-h-0\">\n\n    <!-- Col 1: Upload -->\n    <div class=\"flex flex-col gap-2 min-h-0\">\n      <h2 class=\"text-xs font-semibold uppercase tracking-wider text-gray-400 px-1\">Dokument</h2>\n      <div id=\"upload-area\" class=\"flex-1 min-h-0\"></div>\n    </div>\n\n    <!-- Col 2: Schema -->\n    <div class=\"flex flex-col gap-2 min-h-0\">\n      <h2 class=\"text-xs font-semibold uppercase tracking-wider text-gray-400 px-1\">Gesuchte Felder</h2>\n      <div class=\"flex-1 rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-4 overflow-auto min-h-0\">\n        <div>\n          <h3 class=\"text-sm font-semibold text-gray-700 mb-2\">Vordefinierte Felder</h3>\n          <div id=\"preset-fields\" class=\"flex flex-wrap gap-2\"></div>\n        </div>\n        <div>\n          <h3 class=\"text-sm font-semibold text-gray-700 mb-2\">Eigene Felder</h3>\n          <div id=\"custom-fields\" class=\"flex flex-wrap gap-2 mb-2\"></div>\n          <div class=\"flex gap-2\">\n            <input id=\"custom-input\" type=\"text\" placeholder=\"z.B. Kundennummer\"\n              class=\"flex-1 h-9 px-3 rounded-lg border border-gray-300 text-sm outline-none focus:ring-2 focus:ring-blue-500\">\n            <button onclick=\"addCustomField()\"\n              class=\"h-9 px-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium\">+</button>\n          </div>\n        </div>\n        <div class=\"mt-auto pt-2\">\n          <p id=\"field-count\" class=\"text-xs text-gray-400 mb-2\"></p>\n          <button id=\"scan-btn\" onclick=\"startScan()\" disabled\n            class=\"w-full h-10 rounded-lg bg-blue-600 text-white font-medium text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2\">\n            <svg class=\"w-4 h-4\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" viewBox=\"0 0 24 24\">\n              <path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z\"/>\n            </svg>\n            Scan starten\n          </button>\n        </div>\n      </div>\n    </div>\n\n    <!-- Col 3: Result -->\n    <div class=\"flex flex-col gap-2 min-h-0\">\n      <h2 class=\"text-xs font-semibold uppercase tracking-wider text-gray-400 px-1\">Ergebnis</h2>\n      <div id=\"result-area\" class=\"flex-1 rounded-xl border border-gray-200 bg-white overflow-auto min-h-0\"></div>\n    </div>\n  </main>\n\n<script>\n// ===== STATE =====\nlet currentFile = null;\nlet schema = [\n  { name: 'Rechnungsnummer', aktiv: true, custom: false },\n  { name: 'Betrag', aktiv: true, custom: false },\n  { name: 'Datum', aktiv: true, custom: false },\n  { name: 'Aussteller', aktiv: true, custom: false },\n  { name: 'Empfänger', aktiv: true, custom: false },\n  { name: 'IBAN', aktiv: false, custom: false },\n  { name: 'Steuernummer', aktiv: false, custom: false },\n  { name: 'Vertragsnummer', aktiv: false, custom: false },\n  { name: 'Fälligkeitsdatum', aktiv: false, custom: false },\n  { name: 'Betreff', aktiv: false, custom: false },\n];\nlet result = null;\nlet loading = false;\nlet error = null;\nlet activeTab = 'felder';\n\n// ===== SCAN URL (auto-derived from current page URL) =====\nconst pp = window.location.pathname.split('/');\npp[pp.length - 1] = 'docscan-api';\nconst SCAN_URL = window.location.origin + pp.join('/');\n\n// ===== UPLOAD =====\nconst uploadArea = document.getElementById('upload-area');\n\nuploadArea.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); uploadArea.querySelector('.drop-zone')?.classList.add('drop-active'); });\nuploadArea.addEventListener('dragleave', e => { e.preventDefault(); uploadArea.querySelector('.drop-zone')?.classList.remove('drop-active'); });\nuploadArea.addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); uploadArea.querySelector('.drop-zone')?.classList.remove('drop-active'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });\n\nlet fileDataUrl = null;\n\nfunction handleFile(file) {\n  if (!file) return;\n  if (file.size > 50 * 1024 * 1024) { alert('Datei zu groß (max. 50 MB)'); return; }\n  currentFile = file;\n  result = null; error = null;\n  const reader = new FileReader();\n  reader.onload = () => { fileDataUrl = reader.result; renderUpload(); };\n  reader.readAsDataURL(file);\n  renderResult(); updateScanBtn();\n}\n\nfunction removeFile(e) {\n  if (e) e.stopPropagation();\n  currentFile = null; fileDataUrl = null; result = null; error = null;\n  renderUpload(); renderResult(); updateScanBtn();\n}\n\nfunction openFilePicker() {\n  const inp = document.createElement('input');\n  inp.type = 'file';\n  inp.accept = '.pdf,.jpg,.jpeg,.png,.webp,.tiff,.tif';\n  inp.onchange = () => { if (inp.files[0]) handleFile(inp.files[0]); };\n  inp.click();\n}\n\nfunction renderUpload() {\n  if (!currentFile) {\n    uploadArea.innerHTML = `\n      <div class=\"drop-zone h-full rounded-xl border-2 border-dashed border-gray-300 bg-white flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 transition\" onclick=\"openFilePicker()\">\n        <svg class=\"w-10 h-10 text-gray-300 mb-3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" viewBox=\"0 0 24 24\">\n          <path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12\"/>\n        </svg>\n        <p class=\"font-medium text-gray-600\">Datei hierher ziehen</p>\n        <p class=\"text-sm text-gray-400 mt-1\">oder klicken zum Auswählen</p>\n        <p class=\"text-xs text-gray-300 mt-3\">PDF, JPG, PNG, TIFF, WEBP · max. 50 MB</p>\n      </div>`;\n    return;\n  }\n\n  const isPdf = currentFile.type === 'application/pdf';\n  const isImg = currentFile.type.startsWith('image/');\n  const kb = (currentFile.size / 1024).toFixed(0);\n\n  let preview = '<div class=\"flex-1 flex items-center justify-center text-sm text-gray-400\">Keine Vorschau</div>';\n  if (isPdf && fileDataUrl) preview = '<embed src=\"' + fileDataUrl + '\" type=\"application/pdf\" class=\"flex-1 w-full\">';\n  else if (isImg && fileDataUrl) preview = '<img src=\"' + fileDataUrl + '\" alt=\"Vorschau\" class=\"flex-1 object-contain p-2 min-h-0\">';\n\n  uploadArea.innerHTML = `\n    <div class=\"h-full rounded-xl border border-gray-200 bg-white flex flex-col overflow-hidden\">\n      <div class=\"flex items-center justify-between p-3 border-b border-gray-100 shrink-0\">\n        <div class=\"flex items-center gap-2 text-sm min-w-0\">\n          <span class=\"text-lg\">${isPdf ? '📄' : '🖼️'}</span>\n          <div class=\"min-w-0\">\n            <p class=\"font-medium truncate\">${currentFile.name}</p>\n            <p class=\"text-xs text-gray-500\">${kb} KB</p>\n          </div>\n        </div>\n        <button onclick=\"removeFile(event)\" class=\"p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 text-sm\">✕</button>\n      </div>\n      ${preview}\n    </div>`;\n}\n\n// ===== SCHEMA =====\nfunction toggleField(name) {\n  const f = schema.find(s => s.name === name);\n  if (f) f.aktiv = !f.aktiv;\n  renderSchema(); updateScanBtn();\n}\n\nfunction addCustomField() {\n  const inp = document.getElementById('custom-input');\n  const name = inp.value.trim();\n  if (!name || schema.some(s => s.name.toLowerCase() === name.toLowerCase())) return;\n  schema.push({ name, aktiv: true, custom: true });\n  inp.value = '';\n  renderSchema(); updateScanBtn();\n}\n\nfunction removeCustomField(name) {\n  schema = schema.filter(s => s.name !== name);\n  renderSchema(); updateScanBtn();\n}\n\nfunction renderSchema() {\n  document.getElementById('preset-fields').innerHTML = schema.filter(f => !f.custom).map(f =>\n    '<button onclick=\"toggleField(\\'' + f.name + '\\')\" class=\"field-chip rounded-full border px-3 py-1.5 text-sm ' +\n    (f.aktiv ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300') +\n    '\">' + f.name + '</button>'\n  ).join('');\n\n  document.getElementById('custom-fields').innerHTML = schema.filter(f => f.custom).map(f =>\n    '<span class=\"field-chip inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700\">' +\n    f.name + '<button onclick=\"removeCustomField(\\'' + f.name + '\\')\" class=\"hover:text-emerald-900 font-bold\">✕</button></span>'\n  ).join('');\n\n  const c = schema.filter(f => f.aktiv).length;\n  document.getElementById('field-count').textContent = c + (c === 1 ? ' Feld' : ' Felder') + ' ausgewählt';\n}\n\nfunction updateScanBtn() {\n  document.getElementById('scan-btn').disabled = !currentFile || schema.filter(f => f.aktiv).length === 0 || loading;\n}\n\n// ===== SCAN =====\nasync function startScan() {\n  if (!currentFile || loading) return;\n  const aktive = schema.filter(f => f.aktiv).map(f => f.name);\n  if (!aktive.length) return;\n\n  loading = true; error = null; result = null;\n  renderResult(); updateScanBtn();\n\n  try {\n    const b64 = await toBase64(currentFile);\n    const res = await fetch(SCAN_URL, {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({ datei_name: currentFile.name, datei_typ: currentFile.type, datei_base64: b64, gesuchte_felder: aktive })\n    });\n    if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + (await res.text()));\n    const data = await res.json();\n    result = Array.isArray(data) ? data[0] : data;\n  } catch (e) {\n    error = e.message || 'Unbekannter Fehler';\n  } finally {\n    loading = false; renderResult(); updateScanBtn();\n  }\n}\n\nfunction toBase64(file) {\n  return new Promise((resolve, reject) => {\n    const r = new FileReader();\n    r.onload = () => resolve(r.result.split(',')[1]);\n    r.onerror = reject;\n    r.readAsDataURL(file);\n  });\n}\n\n// ===== RESULT =====\nfunction setTab(t) { activeTab = t; renderResult(); }\n\nfunction renderResult() {\n  const area = document.getElementById('result-area');\n\n  if (error) {\n    area.innerHTML = '<div class=\"h-full flex flex-col items-center justify-center p-6 text-center\">' +\n      '<div class=\"w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-3 text-red-600 text-xl\">✕</div>' +\n      '<p class=\"font-medium text-red-700\">Fehler</p>' +\n      '<p class=\"text-sm text-red-600 mt-1 max-w-xs\">' + error + '</p></div>';\n    return;\n  }\n\n  if (loading) {\n    area.innerHTML = '<div class=\"h-full flex flex-col items-center justify-center p-6 text-center\">' +\n      '<svg class=\"w-10 h-10 text-blue-600 spin mb-3\" fill=\"none\" viewBox=\"0 0 24 24\"><circle class=\"opacity-25\" cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"4\"/>' +\n      '<path class=\"opacity-75\" fill=\"currentColor\" d=\"M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z\"/></svg>' +\n      '<p class=\"font-medium text-gray-700\">KI analysiert...</p>' +\n      '<p class=\"text-sm text-gray-500 mt-1\">Dokument wird per OCR gelesen und ausgewertet</p></div>';\n    return;\n  }\n\n  if (!result) {\n    area.innerHTML = '<div class=\"h-full flex flex-col items-center justify-center p-6 text-center\">' +\n      '<svg class=\"w-10 h-10 text-gray-300 mb-3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" viewBox=\"0 0 24 24\">' +\n      '<path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m5.231 13.481L15 17.25m-4.5-15H5.625c-.621 0-1.125.504-1.125 1.125v16.5c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z\"/></svg>' +\n      '<p class=\"font-medium text-gray-500\">Noch kein Ergebnis</p>' +\n      '<p class=\"text-sm text-gray-400 mt-1\">Lade ein Dokument hoch, wähle Felder<br>und starte den Scan.</p></div>';\n    return;\n  }\n\n  const felder = result.felder || {};\n  const entries = Object.entries(felder);\n\n  const felderHtml = entries.map(([name, f]) => {\n    const k = typeof f.konfidenz === 'number' ? f.konfidenz : 0;\n    const pct = Math.round(k * 100);\n    const low = k < 0.6, mid = k >= 0.6 && k < 0.8;\n    const bc = low ? 'border-red-200 bg-red-50' : mid ? 'border-amber-200 bg-amber-50' : 'border-gray-100';\n    const bar = low ? 'bg-red-500' : mid ? 'bg-amber-500' : 'bg-emerald-500';\n    const hint = low ? ' <span class=\"text-red-600\">✕ Unsicher</span>' : mid ? ' <span class=\"text-amber-600\">⚠ Bitte prüfen</span>' : '';\n    return '<div class=\"rounded-lg border ' + bc + ' p-3\">' +\n      '<p class=\"text-xs uppercase tracking-wide text-gray-500\">' + name + '</p>' +\n      '<p class=\"mt-1 text-sm font-medium text-gray-900\">' + (f.wert || '-') + '</p>' +\n      '<div class=\"mt-2\"><div class=\"h-1.5 w-full rounded-full bg-gray-200\">' +\n      '<div class=\"h-1.5 rounded-full ' + bar + '\" style=\"width:' + pct + '%\"></div></div>' +\n      '<p class=\"mt-1 text-xs text-gray-500\">Konfidenz: ' + pct + '%' + hint + '</p></div></div>';\n  }).join('');\n\n  const tabF = activeTab === 'felder';\n  const tabR = activeTab === 'rohtext';\n\n  area.innerHTML =\n    '<div class=\"p-4 flex flex-col gap-3 h-full\">' +\n      '<div class=\"flex items-start justify-between shrink-0\">' +\n        '<div>' +\n          '<span class=\"rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-700\">' + (result.dokument_typ || 'Dokument') + '</span>' +\n          '<p class=\"text-sm text-gray-600 mt-2\">' + (result.kurzbeschreibung || '') + '</p>' +\n          '<p class=\"text-xs text-gray-400 mt-1\">OCR-Qualität: ' + Math.round((result.ocr_konfidenz || 0) * 100) + '%</p>' +\n        '</div>' +\n        '<button onclick=\"exportXlsx()\" class=\"shrink-0 flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm hover:bg-gray-50 transition\">⬇ XLS</button>' +\n      '</div>' +\n      '<div class=\"flex gap-1 border-b border-gray-200 shrink-0\">' +\n        '<button onclick=\"setTab(\\'felder\\')\" class=\"px-3 py-2 text-sm font-medium border-b-2 transition ' + (tabF ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700') + '\">Felder (' + entries.length + ')</button>' +\n        '<button onclick=\"setTab(\\'rohtext\\')\" class=\"px-3 py-2 text-sm font-medium border-b-2 transition ' + (tabR ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700') + '\">Rohtext</button>' +\n      '</div>' +\n      '<div class=\"flex-1 overflow-auto\">' +\n        (tabF\n          ? '<div class=\"space-y-2\">' + (felderHtml || '<p class=\"text-sm text-gray-400\">Keine Felder extrahiert.</p>') + '</div>'\n          : '<div class=\"space-y-2\"><button onclick=\"copyText()\" class=\"flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm hover:bg-gray-50 transition\">📋 Kopieren</button>' +\n            '<pre class=\"whitespace-pre-wrap rounded-lg bg-gray-50 border border-gray-200 p-3 font-mono text-xs text-gray-700\">' + (result.volltext || 'Kein Text.') + '</pre></div>'\n        ) +\n      '</div>' +\n    '</div>';\n}\n\n// ===== EXPORT =====\nfunction exportXlsx() {\n  if (!result || !result.felder) return;\n  const rows = Object.entries(result.felder).map(([n, f]) => ({ Feldname: n, Wert: f.wert || '', 'Konfidenz (%)': Math.round((f.konfidenz || 0) * 100) }));\n  const ws = XLSX.utils.json_to_sheet(rows);\n  const wb = XLSX.utils.book_new();\n  XLSX.utils.book_append_sheet(wb, ws, 'Ergebnis');\n  ws['!cols'] = [{ wch: 25 }, { wch: 40 }, { wch: 15 }];\n  XLSX.writeFile(wb, 'scan-ergebnis.xlsx');\n}\n\nfunction copyText() {\n  if (result && result.volltext) {\n    navigator.clipboard.writeText(result.volltext).then(() => {\n      const btn = event.target.closest('button');\n      if (btn) { btn.textContent = '✓ Kopiert'; setTimeout(() => { btn.innerHTML = '📋 Kopieren'; }, 1500); }\n    });\n  }\n}\n\n// ===== INIT =====\ndocument.getElementById('custom-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addCustomField(); } });\nrenderUpload();\nrenderSchema();\nrenderResult();\nupdateScanBtn();\n</script>\n</body>\n</html>\n"
+      },
+      "id": "generate-webapp",
+      "name": "generateWebApp",
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        280,
+        -500
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "post-webapp",
+      "name": "postWebApp",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        500,
+        -500
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "docscan-api",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "trigger-scan",
+      "name": "triggerScanApi",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        60,
+        -280
+      ],
+      "webhookId": "docscan-scan-api"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json.body;\nconst gesuchte = input.gesuchte_felder || [];\n\nconst felder = {};\nfor (const name of gesuchte) {\n  felder[name] = { wert: mockValue(name), konfidenz: +(0.82 + Math.random() * 0.17).toFixed(2) };\n}\n\nfunction mockValue(n) {\n  const l = n.toLowerCase();\n  if (l.includes('betrag')) return '49,99 €';\n  if (l.includes('datum') && !l.includes('fällig')) return '15.03.2025';\n  if (l.includes('fällig')) return '31.03.2025';\n  if (l.includes('rechnungsnummer') || l.includes('rechnung')) return 'RE-2025-001234';\n  if (l.includes('aussteller')) return 'Beispiel GmbH';\n  if (l.includes('empfänger') || l.includes('empfaenger')) return 'Max Mustermann';\n  if (l.includes('iban')) return 'DE89 3704 0044 0532 0130 00';\n  if (l.includes('steuer')) return 'DE123456789';\n  if (l.includes('vertrag')) return 'V-2025-5678';\n  if (l.includes('betreff')) return 'Monatsrechnung März 2025';\n  return 'Beispielwert für ' + n;\n}\n\nreturn [{\n  json: {\n    dokument_typ: 'Rechnung',\n    kurzbeschreibung: 'Rechnung von Beispiel GmbH über 49,99 € (Demo-Daten)',\n    felder: felder,\n    volltext: 'Beispiel GmbH\\nMusterstraße 1\\n80331 München\\n\\nRechnung Nr. RE-2025-001234\\nDatum: 15.03.2025\\n\\nSehr geehrter Herr Mustermann,\\n\\nfür unsere Leistungen berechnen wir Ihnen:\\n\\nPos. 1: Beratung              39,99 €\\nPos. 2: Dokumentation          10,00 €\\n\\nGesamtbetrag netto:            49,99 €\\nMwSt. 19%:                      9,50 €\\nGesamtbetrag brutto:           59,49 €\\n\\nZahlbar bis: 31.03.2025\\nIBAN: DE89 3704 0044 0532 0130 00\\nBIC: COBADEFFXXX',\n    ocr_konfidenz: 0.94\n  }\n}];"
+      },
+      "id": "process-scan",
+      "name": "processScan (Demo-Daten)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        -280
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "post-scan-result",
+      "name": "postScanResult",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        500,
+        -280
+      ]
+    }
+  ],
+  "connections": {
+    "triggerWebApp": {
+      "main": [
+        [
+          {
+            "node": "generateWebApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "generateWebApp": {
+      "main": [
+        [
+          {
+            "node": "postWebApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "triggerScanApi": {
+      "main": [
+        [
+          {
+            "node": "processScan (Demo-Daten)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "processScan (Demo-Daten)": {
+      "main": [
+        [
+          {
+            "node": "postScanResult",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

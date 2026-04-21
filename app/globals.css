@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 6% 6%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+    --radius: 0.5rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(240 3.7% 22%) transparent;
+}
+
+/* Leaflet dark theme */
+.leaflet-container {
+  background: hsl(240 10% 3.9%) !important;
+  font-family: inherit !important;
+}
+
+.leaflet-popup-content-wrapper {
+  background: hsl(240 6% 8%) !important;
+  color: hsl(0 0% 90%) !important;
+  border-radius: 8px !important;
+  border: 1px solid hsl(240 3.7% 15.9%) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+.leaflet-popup-tip {
+  background: hsl(240 6% 8%) !important;
+}
+
+.leaflet-popup-close-button {
+  color: hsl(240 5% 50%) !important;
+}
+
+.leaflet-control-attribution {
+  background: hsl(240 10% 3.9% / 0.7) !important;
+  color: hsl(240 5% 35%) !important;
+  font-size: 9px !important;
+}
+
+.leaflet-control-attribution a {
+  color: hsl(240 5% 45%) !important;
+}
