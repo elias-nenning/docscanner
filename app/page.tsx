@@ -1,15 +1,21 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "framer-motion";
+import { Loader2, Layers3, ShieldCheck, TimerReset } from "lucide-react";
+import { AppShell, ShellActionButton } from "@/components/AppShell";
+import { PageIntro } from "@/components/PageIntro";
 import { DropZone } from "@/components/DropZone";
-import { ResultsTable } from "@/components/ResultsTable";
 import { RecentDocuments } from "@/components/RecentDocuments";
+import { ScanProgress } from "@/components/ScanProgress";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { addToHistory } from "@/lib/history";
 import { geocode } from "@/lib/geocode";
-import { Loader2 } from "lucide-react";
+import { saveScanSession, type ScanDocumentItem } from "@/lib/scan-session";
 import { ALL_SCAN_FIELDS, type ScanResult } from "@/lib/types";
 
 const DocumentMap = dynamic(() => import("@/components/DocumentMap"), {
@@ -20,131 +26,214 @@ const DocumentMap = dynamic(() => import("@/components/DocumentMap"), {
 });
 
 export default function HomePage() {
-  const [file, setFile] = useState<File | null>(null);
-  const [result, setResult] = useState<ScanResult | null>(null);
+  const router = useRouter();
+  const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
 
-  const handleFileChange = useCallback((newFile: File | null) => {
-    setFile(newFile);
-    if (!newFile) {
-      setResult(null);
+  const handleFilesChange = useCallback((next: File[]) => {
+    setFiles(next);
+    if (next.length === 0) {
       setError(null);
     }
   }, []);
 
   async function handleScan() {
-    if (!file) return;
+    if (files.length === 0) return;
     setLoading(true);
     setError(null);
-    setResult(null);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("schema", JSON.stringify(ALL_SCAN_FIELDS));
-      const res = await fetch("/api/scan", { method: "POST", body: fd });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-      const scanResult = json as ScanResult;
+    setBatchProgress({ current: 1, total: files.length });
+    const documents: ScanDocumentItem[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setBatchProgress({ current: i + 1, total: files.length });
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("schema", JSON.stringify(ALL_SCAN_FIELDS));
+        const res = await fetch("/api/scan", { method: "POST", body: fd });
+        const json = await res.json();
+        if (!res.ok) {
+          throw new Error(json.error || `HTTP ${res.status}`);
+        }
+        const scanResult = json as ScanResult;
+        const scanId =
+          typeof json.scan_id === "string" ? json.scan_id : crypto.randomUUID();
 
-      // Filter out empty fields for cleaner display
-      const filledFields: Record<string, { wert: string; konfidenz: number }> = {};
-      for (const [key, val] of Object.entries(scanResult.felder)) {
-        if (val.wert) filledFields[key] = val;
-      }
-      scanResult.felder = filledFields;
-      setResult(scanResult);
+        const filledCount = Object.values(scanResult.felder).filter((v) =>
+          v.wert?.trim(),
+        ).length;
 
-      const addressKeys = ["Aussteller", "Empfänger", "Adresse", "Absender", "Firma", "Standort"];
-      let location: { lat: number; lng: number; address: string } | undefined;
-      for (const key of addressKeys) {
-        const field = scanResult.felder[key];
-        if (field?.wert) {
-          const geo = await geocode(field.wert);
-          if (geo) {
-            location = { lat: geo.lat, lng: geo.lng, address: field.wert };
-            break;
+        const addressKeys = [
+          "Aussteller",
+          "Empfänger",
+          "Adresse",
+          "Absender",
+          "Firma",
+          "Standort",
+        ];
+        let location: { lat: number; lng: number; address: string } | undefined;
+        for (const key of addressKeys) {
+          const field = scanResult.felder[key];
+          if (field?.wert) {
+            const geo = await geocode(field.wert);
+            if (geo) {
+              location = { lat: geo.lat, lng: geo.lng, address: field.wert };
+              break;
+            }
           }
         }
-      }
 
-      addToHistory({
-        fileName: file.name,
-        fileType: file.type,
-        fileSize: file.size,
-        documentType: scanResult.dokument_typ,
-        fieldCount: Object.keys(filledFields).length,
-        confidence: Math.round(scanResult.ocr_konfidenz * 100),
-        location,
-      });
+        addToHistory({
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          documentType: scanResult.dokument_typ,
+          fieldCount: filledCount,
+          confidence: Math.round(scanResult.ocr_konfidenz * 100),
+          location,
+        });
+
+        documents.push({
+          scanId,
+          status: "success",
+          result: scanResult,
+          fileName: file.name,
+          fileType: file.type,
+          scannedAt: new Date().toISOString(),
+          retryable: true,
+        });
+      } catch (err) {
+        documents.push({
+          scanId: crypto.randomUUID(),
+          status: "failed",
+          fileName: file.name,
+          fileType: file.type,
+          scannedAt: new Date().toISOString(),
+          error: err instanceof Error ? err.message : "Unbekannter Fehler",
+          retryable: true,
+        });
+      }
+    }
+
+    try {
+      saveScanSession({ documents });
+      await new Promise((r) => setTimeout(r, 380));
+      router.push("/ergebnis");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      setError(err instanceof Error ? err.message : "Unbekannter Fehler");
     } finally {
       setLoading(false);
+      setBatchProgress(null);
     }
   }
 
   function handleReset() {
-    setFile(null);
-    setResult(null);
+    setFiles([]);
     setError(null);
   }
 
-  const hasFile = !!file;
+  const hasFiles = files.length > 0;
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex h-12 shrink-0 items-center border-b px-4 lg:px-6">
-        <button
-          onClick={hasFile ? handleReset : undefined}
-          className="text-sm font-semibold tracking-tight hover:opacity-70 transition-opacity"
-        >
-          ScanDesk
-        </button>
-        {file && (
-          <>
-            <span className="mx-2.5 text-border">/</span>
-            <span className="truncate text-sm text-muted-foreground max-w-[240px]">
-              {file.name}
-            </span>
-          </>
-        )}
-        <div className="ml-auto">
-          {file && (
-            <Button variant="ghost" size="sm" onClick={handleReset} className="text-xs">
-              New scan
-            </Button>
-          )}
-        </div>
-      </header>
-
-      <div className="flex-1 overflow-hidden">
+    <AppShell
+      title="ScanDesk"
+      subtitle={
+        hasFiles
+          ? files.length === 1
+            ? files[0].name
+            : `${files.length} Dokumente im Scanlauf`
+          : "Intelligente OCR fuer Dokumente und Stapel-Scans"
+      }
+      onTitleClick={hasFiles ? handleReset : undefined}
+      action={
+        hasFiles ? (
+          <ShellActionButton variant="ghost" onClick={handleReset}>
+            Neuer Scan
+          </ShellActionButton>
+        ) : null
+      }
+      maxWidthClassName="max-w-7xl"
+    >
+      <div className="overflow-hidden">
         <AnimatePresence mode="wait" initial={false}>
-          {!hasFile ? (
+          {!hasFiles ? (
             <motion.div
               key="landing"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.12 }}
-              className="h-full overflow-y-auto"
+              className="overflow-y-auto"
             >
-              <div className="mx-auto max-w-4xl p-6 lg:p-8 space-y-6">
-                <div>
-                  <h1 className="text-lg font-semibold tracking-tight">New scan</h1>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Upload a document to extract all important information automatically.
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_300px]">
-                  <DropZone file={null} onFileChange={handleFileChange} />
+              <PageIntro
+                eyebrow="Dokumentenplattform"
+                title="Dokumente schnell erfassen und sauber auswerten"
+                description="Lade einen einzelnen Beleg oder gleich einen ganzen Stapel hoch. ScanDesk liest jede Datei separat, extrahiert die wichtigsten Felder und zeigt die Auswertung uebersichtlich auf einer eigenen Ergebnisseite."
+              />
+
+              <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
+                <Card className="overflow-hidden border-border/70 bg-card/80 shadow-lg backdrop-blur-sm">
+                  <CardHeader className="border-b border-border/60">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <Badge variant="secondary" className="mb-3 rounded-md">
+                          Upload
+                        </Badge>
+                        <CardTitle>Dateien fuer den Scan vorbereiten</CardTitle>
+                        <CardDescription className="mt-2 max-w-2xl">
+                          PDF, JPG, PNG, WEBP oder TIFF hochladen. Mehrere Dokumente
+                          werden nacheinander verarbeitet, damit OCR und Feldzuordnung
+                          stabil bleiben.
+                        </CardDescription>
+                      </div>
+                      <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                        <div className="rounded-lg border bg-background px-3 py-2">
+                          <div className="flex items-center gap-2 font-medium text-foreground">
+                            <Layers3 className="h-3.5 w-3.5" />
+                            Stapel
+                          </div>
+                          <p className="mt-1">Bis zu 25 Dateien pro Durchlauf</p>
+                        </div>
+                        <div className="rounded-lg border bg-background px-3 py-2">
+                          <div className="flex items-center gap-2 font-medium text-foreground">
+                            <ShieldCheck className="h-3.5 w-3.5" />
+                            Felder
+                          </div>
+                          <p className="mt-1">Mehr als 20 Datenpunkte je Dokument</p>
+                        </div>
+                        <div className="rounded-lg border bg-background px-3 py-2">
+                          <div className="flex items-center gap-2 font-medium text-foreground">
+                            <TimerReset className="h-3.5 w-3.5" />
+                            Ablauf
+                          </div>
+                          <p className="mt-1">Direkte Weiterleitung zur Ergebnistabelle</p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <DropZone files={[]} onFilesChange={handleFilesChange} />
+                  </CardContent>
+                </Card>
+
+                <div className="space-y-6">
                   <RecentDocuments />
-                </div>
-                <div>
-                  <h2 className="mb-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Document origins
-                  </h2>
-                  <DocumentMap />
+                  <Card className="border-border/70 bg-card/80 backdrop-blur-sm">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">Dokumentherkunft</CardTitle>
+                      <CardDescription>
+                        Letzte erkannte Standorte aus deinen Scans.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <DocumentMap />
+                    </CardContent>
+                  </Card>
                 </div>
               </div>
             </motion.div>
@@ -155,71 +244,139 @@ export default function HomePage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.12 }}
-              className="h-full overflow-y-auto"
+              className="overflow-y-auto"
             >
-              <div className="mx-auto max-w-5xl p-4 lg:p-6 space-y-5">
-                <div className="grid grid-cols-1 gap-5 lg:grid-cols-[340px_1fr]">
-                  {/* Left: preview + scan button */}
-                  <div className="space-y-4">
-                    <div className="h-64 lg:h-80">
-                      <DropZone file={file} onFileChange={handleFileChange} />
-                    </div>
-                    <Button
-                      className="w-full"
-                      size="lg"
-                      disabled={loading}
-                      onClick={handleScan}
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Scanning document…
-                        </>
-                      ) : result ? (
-                        "Re-scan document"
-                      ) : (
-                        "Scan document"
-                      )}
-                    </Button>
-                  </div>
+              <PageIntro
+                eyebrow="Scanlauf"
+                title="Bereit fuer die Auswertung"
+                description="Pruefe deine Auswahl, starte den OCR-Lauf und beobachte den Fortschritt. Jede Datei wird separat verarbeitet und danach in einer strukturierten Ergebnissicht zusammengefasst."
+              />
 
-                  {/* Right: results */}
-                  <div className="min-w-0">
-                    {loading && (
-                      <div className="flex items-center gap-3 rounded-lg border bg-card p-6">
-                        <Loader2 className="h-5 w-5 shrink-0 animate-spin text-muted-foreground" />
-                        <div>
-                          <p className="text-sm font-medium">Reading document…</p>
-                          <p className="text-xs text-muted-foreground">
-                            OCR and data extraction in progress
-                          </p>
-                        </div>
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_1fr]">
+                <div className="space-y-4">
+                  <Card className="border-border/70 bg-card/80 backdrop-blur-sm">
+                    <CardHeader className="pb-4">
+                      <CardTitle className="text-base">Aktueller Stapel</CardTitle>
+                      <CardDescription>
+                        {files.length === 1
+                          ? "Ein Dokument ist bereit fuer den Scan."
+                          : `${files.length} Dokumente werden nacheinander gescannt.`}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="h-64 lg:h-80">
+                      <DropZone files={files} onFilesChange={handleFilesChange} />
                       </div>
-                    )}
+                      <Button
+                        className="w-full"
+                        size="lg"
+                        disabled={loading}
+                        onClick={handleScan}
+                      >
+                        {loading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            {files.length === 1
+                              ? "Dokument wird gescannt…"
+                              : `${files.length} Dokumente werden gescannt…`}
+                          </>
+                        ) : files.length === 1 ? (
+                          "Dokument scannen"
+                        ) : (
+                          `${files.length} Dokumente scannen`
+                        )}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
 
-                    {error && (
+                <div className="min-w-0 space-y-4">
+                  <Card className="border-border/70 bg-card/80 backdrop-blur-sm">
+                    <CardHeader className="pb-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <CardTitle className="text-base">Status</CardTitle>
+                          <CardDescription>
+                            Fortschritt, Hinweise und Ergebnisuebergabe.
+                          </CardDescription>
+                        </div>
+                        <Badge variant="outline" className="rounded-md">
+                          {loading
+                            ? "OCR aktiv"
+                            : files.length === 1
+                              ? "1 Dokument bereit"
+                              : `${files.length} Dokumente bereit`}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                    <AnimatePresence mode="wait">
+                      {loading && (
+                        <motion.div
+                          key="progress"
+                          initial={{ opacity: 0, scale: 0.98 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.98 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <ScanProgress
+                            active
+                            batch={
+                              batchProgress && batchProgress.total > 1
+                                ? batchProgress
+                                : undefined
+                            }
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {!loading && error && (
                       <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-                        <p className="text-sm font-medium">Extraction failed</p>
+                        <p className="text-sm font-medium">Scan fehlgeschlagen</p>
                         <p className="mt-1 text-xs text-muted-foreground">{error}</p>
                       </div>
                     )}
 
-                    {result && <ResultsTable result={result} />}
-
-                    {!loading && !error && !result && (
-                      <div className="flex h-64 items-center justify-center rounded-lg border border-dashed">
-                        <p className="text-sm text-muted-foreground">
-                          Click &quot;Scan document&quot; to extract data
-                        </p>
+                    {!loading && !error && (
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-xl border bg-background p-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Verarbeitung
+                          </p>
+                          <p className="mt-2 text-sm font-medium">OCR pro Dokument</p>
+                          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                            Jede Datei wird separat gelesen und strukturiert extrahiert.
+                          </p>
+                        </div>
+                        <div className="rounded-xl border bg-background p-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Ausgabe
+                          </p>
+                          <p className="mt-2 text-sm font-medium">Vollstaendige Tabellen</p>
+                          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                            Auch leere oder unsichere Felder bleiben sichtbar.
+                          </p>
+                        </div>
+                        <div className="rounded-xl border bg-background p-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Navigation
+                          </p>
+                          <p className="mt-2 text-sm font-medium">Dokumentliste im Ergebnis</p>
+                          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                            Bei Stapeln wechselst du direkt zwischen allen Auswertungen.
+                          </p>
+                        </div>
                       </div>
                     )}
-                  </div>
+                    </CardContent>
+                  </Card>
                 </div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
-    </div>
+    </AppShell>
   );
 }

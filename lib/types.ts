@@ -1,3 +1,9 @@
+export interface SchemaFeld {
+  name: string;
+  aktiv: boolean;
+  custom?: boolean;
+}
+
 export interface ExtrahiertesFeld {
   wert: string;
   konfidenz: number;
@@ -8,6 +14,7 @@ export interface ScanResult {
   felder: Record<string, ExtrahiertesFeld>;
   rohtext: string;
   ocr_konfidenz: number;
+  kurzbeschreibung?: string;
 }
 
 export const ALL_SCAN_FIELDS = [
@@ -26,9 +33,12 @@ export const ALL_SCAN_FIELDS = [
   "Währung",
   "IBAN",
   "BIC",
+  "Bankname",
+  "Kontoinhaber",
   "Steuernummer",
   "USt-IdNr",
   "Telefon",
+  "Fax",
   "Email",
   "Website",
   "Zahlungsziel",

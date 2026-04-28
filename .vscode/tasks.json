@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ScanDesk: Dev (Port frei)",
+      "type": "shell",
+      "command": "node scripts/dev.cjs",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "ScanDesk: Dev + .next neu",
+      "type": "shell",
+      "command": "node scripts/dev.cjs --clean",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "new" }
+    }
+  ]
+}

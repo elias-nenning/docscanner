@@ -1,38 +1,45 @@
 import { NextResponse } from "next/server";
-import { readFileSync, existsSync, unlinkSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import path from "path";
-
-const UPLOAD_DIR = path.join(process.cwd(), ".tmp-uploads");
+import {
+  UPLOAD_DIR,
+  cleanupExpiredUploads,
+  cleanupUpload,
+  readUploadMeta,
+} from "@/lib/server/uploads";
 
 export async function GET(
   _request: Request,
   { params }: { params: { token: string } },
 ) {
   const { token } = params;
+  cleanupExpiredUploads();
 
   if (!/^[a-f0-9-]{36}$/.test(token)) {
-    return NextResponse.json({ error: "Invalid token" }, { status: 400 });
+    return NextResponse.json({ error: "Ungueltiger Token" }, { status: 400 });
   }
 
-  const metaPath = path.join(UPLOAD_DIR, `${token}.json`);
-  if (!existsSync(metaPath)) {
-    return NextResponse.json({ error: "File not found or expired" }, { status: 404 });
+  const meta = readUploadMeta(token);
+  if (!meta) {
+    return NextResponse.json({ error: "Datei nicht gefunden oder abgelaufen" }, { status: 404 });
   }
 
-  const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
+  if (meta.expiresAt <= Date.now()) {
+    cleanupUpload(token, meta.ext);
+    return NextResponse.json({ error: "Datei ist abgelaufen" }, { status: 410 });
+  }
+
   const filePath = path.join(UPLOAD_DIR, `${token}${meta.ext}`);
 
   if (!existsSync(filePath)) {
-    return NextResponse.json({ error: "File data missing" }, { status: 404 });
+    cleanupUpload(token, meta.ext);
+    return NextResponse.json({ error: "Dateidaten fehlen" }, { status: 404 });
   }
 
   const buffer = readFileSync(filePath);
 
   // Clean up after serving
-  try {
-    unlinkSync(filePath);
-    unlinkSync(metaPath);
-  } catch {}
+  cleanupUpload(token, meta.ext);
 
   return new NextResponse(buffer, {
     headers: {

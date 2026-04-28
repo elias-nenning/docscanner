@@ -20,8 +20,8 @@ export function ErgebnisPanel({ result, loading, error }: ErgebnisPanelProps) {
   const [copied, setCopied] = useState(false);
 
   function handleCopyText() {
-    if (!result?.volltext) return;
-    navigator.clipboard.writeText(result.volltext).then(() => {
+    if (!result?.rohtext) return;
+    navigator.clipboard.writeText(result.rohtext).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -132,7 +132,7 @@ export function ErgebnisPanel({ result, loading, error }: ErgebnisPanelProps) {
               </Button>
             </div>
             <pre className="overflow-auto p-4 pr-10 text-xs leading-relaxed text-muted-foreground font-mono max-h-[400px]">
-              {result.volltext || "No text extracted."}
+              {result.rohtext || "No text extracted."}
             </pre>
           </div>
         </TabsContent>

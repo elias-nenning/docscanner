@@ -57,26 +57,26 @@ export function RecentDocuments() {
 
   if (history.length === 0) {
     return (
-      <div className="flex h-[240px] flex-col items-center justify-center rounded-lg border border-dashed p-6 text-center">
+      <div className="flex h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed p-6 text-center">
         <Clock className="mb-3 h-5 w-5 text-muted-foreground/40" />
-        <p className="text-sm text-muted-foreground">No scans yet</p>
+        <p className="text-sm text-muted-foreground">Noch keine Scans vorhanden</p>
         <p className="mt-1 text-xs text-muted-foreground/50">
-          Your history will appear here
+          Deine letzten Auswertungen erscheinen hier
         </p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border bg-card">
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/80 shadow-sm backdrop-blur-sm">
       <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
         <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          Recent scans
+          Letzte Scans
         </span>
         <button
           onClick={handleClear}
           className="rounded p-0.5 text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
-          title="Clear history"
+          title="Verlauf leeren"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -88,8 +88,8 @@ export function RecentDocuments() {
       </div>
       <div className="shrink-0 border-t px-3 py-2">
         <p className="text-[11px] text-muted-foreground/50 tabular-nums">
-          {history.length} {history.length === 1 ? "document" : "documents"}{" "}
-          scanned
+          {history.length} {history.length === 1 ? "Dokument" : "Dokumente"}{" "}
+          verarbeitet
         </p>
       </div>
     </div>

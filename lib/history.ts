@@ -50,9 +50,9 @@ export function timeAgo(dateString: string): string {
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
 
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days === 1) return "Yesterday";
-  return `${days}d ago`;
+  if (minutes < 1) return "Gerade eben";
+  if (minutes < 60) return `vor ${minutes} Min.`;
+  if (hours < 24) return `vor ${hours} Std.`;
+  if (days === 1) return "Gestern";
+  return `vor ${days} Tagen`;
 }
