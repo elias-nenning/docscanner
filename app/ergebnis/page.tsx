@@ -22,14 +22,28 @@ export default function ErgebnisPage() {
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
-    const data = loadScanSession();
-    if (!data) {
+    let cancelled = false;
+
+    const resolveSession = () => {
+      const data = loadScanSession();
+      if (cancelled) return;
+
+      if (data) {
+        setPayload(data);
+        setActiveIndex(0);
+        setReady(true);
+        return;
+      }
+
+      setReady(true);
       router.replace("/");
-      return;
-    }
-    setPayload(data);
-    setActiveIndex(0);
-    setReady(true);
+    };
+
+    const timer = window.setTimeout(resolveSession, 40);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [router]);
 
   function handleNewScan() {

@@ -88,7 +88,11 @@ if (!fs.existsSync(nextBin)) {
 const spawnOpts = {
   stdio: "inherit",
   cwd: root,
-  env: { ...process.env },
+  env: {
+    ...process.env,
+    WATCHPACK_POLLING: process.env.WATCHPACK_POLLING || "true",
+    CHOKIDAR_USEPOLLING: process.env.CHOKIDAR_USEPOLLING || "1",
+  },
 };
 
 const result = isWin

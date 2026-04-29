@@ -41,21 +41,10 @@ export function saveScanSession(payload: ScanSessionPayload): void {
   if (typeof window === "undefined") return;
   memorySessionCache = payload;
   try {
-    const persist = () => {
-      try {
-        sessionStorage.setItem(SCAN_SESSION_KEY, JSON.stringify(payload));
-      } catch {
-        /* quota / private mode */
-      }
-    };
-
-    if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(() => persist(), { timeout: 1200 });
-    } else {
-      window.setTimeout(persist, 0);
-    }
+    const serialized = JSON.stringify(payload);
+    sessionStorage.setItem(SCAN_SESSION_KEY, serialized);
   } catch {
-    /* ignore */
+    /* quota / private mode */
   }
 }
 
